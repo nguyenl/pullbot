@@ -27,8 +27,7 @@ REPOS = (
 
 class PullRequestNotifier:
     '''
-    Checks Github for new Pull Requests and notifies any objects that
-    are interested.
+    Checks Github for new Pull Requests.
     '''
     gh_url = "https://www.github.com/api/v2/json/pulls/"
     state = None
