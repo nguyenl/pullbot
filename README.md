@@ -12,5 +12,5 @@ Run PullBot with -h or --help for help
 
 DEPENDENCIES
 -------------
-* [python-requests](www.python-requests.org)
-* [twisted](www.twistedmatrix.com)
+* [python-requests](http://www.python-requests.org)
+* [twisted](http://www.twistedmatrix.com)
