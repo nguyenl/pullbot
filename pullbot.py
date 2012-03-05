@@ -5,7 +5,7 @@ from twisted.internet.protocol import ReconnectingClientFactory
 from urlparse import urljoin
 from optparse import OptionParser
 import requests
-
+import simplejson
 
 # Default Configuration
 NICKNAME = 'PullBot'
@@ -20,7 +20,8 @@ API_TOKEN = "d0eb99b8104a6f1bf3c6f0d1f90dce47" # The github API token to authent
 
 # The github repos to watch. Each tuple contains the owner and repository name.
 REPOS = (
-    ('navcanada', 'cfps'),
+    ('nguyenl', 'pullbot'),
+    #('navcanada', 'cfps'),
     )
 
 
@@ -30,6 +31,31 @@ class PullRequestNotifier:
     are interested.
     '''
     gh_url = "https://www.github.com/api/v2/json/pulls/"
+    state = None
+    state_file = "pullbot_state.json"
+
+    # Load the static state.
+    try:
+        f = open(state_file, 'r')
+        state = simplejson.load(f)
+        f.close()
+    except:
+        print "Unable to load state file:", sys.exc_info()[0]
+        # If loading the state fails.  Assume no previous state
+        # and start fresh.
+        state = {}
+
+    @staticmethod    
+    def save_state():
+        '''
+        Save the state of the notifier. Saving state ensures that the
+        notifier does re-notify pull requests that have already been
+        notified.
+        '''
+        state_json = simplejson.dumps(PullRequestNotifier.state)
+        f = open(PullRequestNotifier.state_file, 'w')
+        f.write(state_json + "\n")
+        f.close()
 
     def __init__(self, name, repo, username, token):
         '''
@@ -41,14 +67,33 @@ class PullRequestNotifier:
         self.token = token
         self.url = urljoin(self.gh_url, name)
         self.url = urljoin(self.url + "/", repo)
+        self.url = urljoin(self.url + "/", "open")
         
-    def query(self, state="open"):
+    def query(self):
         '''
-        Query github for opened pull requests.
+        Query github for open pull requests.
+        Returns the json provided by the API.
         '''
-        query_url = urljoin(self.url + "/", state)
-        r = requests.get(query_url, auth=(self.username + "/token", self.token))
-        print r.text
+        r = requests.get(self.url, auth=(self.username + "/token", self.token))
+        pull_requests = simplejson.loads(r.text)
+        project_name = "%s/%s" % (self.name, self.repo)
+
+        # Check if we've already notified on this pull request.
+        project_state = PullRequestNotifier.state.setdefault(
+            project_name, {"oldest_request": 0})
+        oldest_request = project_state['oldest_request']
+        notifiable_requests = []
+        for pr in pull_requests['pulls']:
+            req_number = int(pr['number'])
+            if  req_number > oldest_request:
+                notifiable_requests.append(pr)
+                project_state['oldest_request'] = req_number
+                PullRequestNotifier.save_state()
+                # try:
+                #     PullRequestNotifier.save_state()
+                # except:
+                #     print "Unable to save state! error:", sys.exc_info()[0]
+        return notifiable_requests
 
 
 class PullBot(irc.IRCClient):
@@ -58,7 +103,8 @@ class PullBot(irc.IRCClient):
 
     def connectionLost(self, reason):
         print "Connection Lost"
-        self.lc.stop()
+        if self.lc:
+            self.lc.stop()
 
     def signedOn(self):
         for channel in self.factory.channels:
@@ -71,7 +117,14 @@ class PullBot(irc.IRCClient):
         print "Joined %s." % (channel,)
 
     def query(self):
-        print "Query Made"
+        for notifier in self.factory.notifiers:
+            pull_requests = notifier.query()
+            for pr in pull_requests:
+                message = ("\x035pull request #%(number)s:"
+                           "\x032 %(html_url)s -\x033 %(title)s") % pr
+                for channel in self.factory.channels:
+                    self.msg(channel, str(message))
+
 
 class PullBotFactory(protocol.ReconnectingClientFactory):
     protocol = PullBot
@@ -83,6 +136,13 @@ class PullBotFactory(protocol.ReconnectingClientFactory):
         self.nickname = nickname
         self.maxDelay = RECONNECT_DELAY
 
+        self.notifiers = []
+        for repo in REPOS:
+            self.notifiers.append(PullRequestNotifier(repo[0],
+                                                      repo[1],
+                                                      self.username,
+                                                      self.token))
+
     def clientConnectionLost(self, connector, reason):
         print "Lost connection (%s), reconnecting." % (reason,)
         connector.connect()
@@ -92,10 +152,6 @@ class PullBotFactory(protocol.ReconnectingClientFactory):
 
 
 if __name__ == "__main__":
-    prn = PullRequestNotifier("navcanada", "cfps", "nguyenl", "d0eb99b8104a6f1bf3c6f0d1f90dce47")
-    prn.query()
-    exit()
-    
     usage = ("usage: %prog [options] GITHUB_USERNAME GITHUB_PASSWORD"
              "\nSee pullbot.py for additional configuration values.")
     parser = OptionParser(usage)
@@ -113,11 +169,10 @@ if __name__ == "__main__":
                       help="Github API Token", metavar="TOKEN", default=API_TOKEN)
     (options, args) = parser.parse_args()
 
-    chan = sys.argv[1]
     pullbot = PullBotFactory(options.channels,
                              nickname=options.nickname,
                              username=options.username,
-                             github_token=options.token,
+                             token=options.token,
                              )
 
     reactor.connectTCP(options.server,
