@@ -1,3 +1,27 @@
+# Copyright (C) 2012 Lee Nguyen
+
+# Permission is hereby granted, free of charge, to any person
+# obtaining a copy of this software and associated documentation files
+# (the "Software"), to deal in the Software without restriction,
+# including without limitation the rights to use, copy, modify, merge,
+# publish, distribute, sublicense, and/or sell copies of the Software,
+# and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+# BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+# ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# pullbot is a simple irc that notifies irc channels of new pull
+# requests.
 import sys
 from twisted.words.protocols import irc
 from twisted.internet import protocol, reactor, task
@@ -7,6 +31,7 @@ from optparse import OptionParser
 import requests
 import simplejson
 
+
 # Default Configuration
 NICKNAME = 'PullBot'
 HOST =  'irc.fisa'
@@ -15,13 +40,12 @@ RECONNECT_DELAY = 60
 CHANNELS = ("#botwars",)
 QUERY_FREQUENCY = 60  # Seconds between github queries.
 USERNAME = "nguyenl"
-API_TOKEN = "d0eb99b8104a6f1bf3c6f0d1f90dce47" # The github API token to authenticate with.
+API_TOKEN = "" # The github API token to authenticate with.
 
 
 # The github repos to watch. Each tuple contains the owner and repository name.
 REPOS = (
     ('nguyenl', 'pullbot'),
-    #('navcanada', 'cfps'),
     )
 
 
@@ -88,10 +112,6 @@ class PullRequestNotifier:
                 notifiable_requests.append(pr)
                 project_state['oldest_request'] = req_number
                 PullRequestNotifier.save_state()
-                # try:
-                #     PullRequestNotifier.save_state()
-                # except:
-                #     print "Unable to save state! error:", sys.exc_info()[0]
         return notifiable_requests
 
 
