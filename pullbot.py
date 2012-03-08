@@ -171,7 +171,7 @@ class PullBotFactory(protocol.ReconnectingClientFactory):
 
 
 if __name__ == "__main__":
-    usage = ("usage: %prog [options] GITHUB_USERNAME GITHUB_PASSWORD"
+    usage = ("usage: %prog [options]"
              "\nSee pullbot.py for additional configuration values.")
     parser = OptionParser(usage)
     parser.add_option("-s", "--server", dest="server",
