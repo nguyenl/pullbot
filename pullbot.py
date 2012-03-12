@@ -99,7 +99,7 @@ class PullRequestNotifier:
         '''
         r = requests.get(self.url, auth=(self.username + "/token", self.token))
         pull_requests = simplejson.loads(r.text)
-        if pull_requests['error']:
+        if 'error' in pull_requests and pull_requests['error']:
             print r.text
         project_name = "%s/%s" % (self.name, self.repo)
 
