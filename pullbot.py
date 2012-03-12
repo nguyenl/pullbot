@@ -37,8 +37,8 @@ NICKNAME = 'PullBot'
 HOST =  'irc.fisa'
 PORT = 6667
 RECONNECT_DELAY = 60
-CHANNELS = ("#botwars",)
-QUERY_FREQUENCY = 60  # Seconds between github queries.
+CHANNELS = ("#cfps",)
+QUERY_FREQUENCY = 300  # Seconds between github queries.
 USERNAME = "nguyenl"
 API_TOKEN = "" # The github API token to authenticate with.
 
@@ -99,6 +99,8 @@ class PullRequestNotifier:
         '''
         r = requests.get(self.url, auth=(self.username + "/token", self.token))
         pull_requests = simplejson.loads(r.text)
+        if pull_requests['error']:
+            print r.text
         project_name = "%s/%s" % (self.name, self.repo)
 
         # Check if we've already notified on this pull request.
@@ -181,20 +183,21 @@ if __name__ == "__main__":
     parser.add_option("-n", "--name", dest="nickname",
                       help="Bot Name", metavar="NAME", default=NICKNAME)
     parser.add_option("-c", "--channels", dest="channels",
-                      help="Channels (comma-separated list)", metavar="CHAN", default=CHANNELS)
+                      help="Channels (comma-separated list)", metavar="CHAN",
+                      default=CHANNELS)
     parser.add_option("-u", "--username", dest="username",
-                      help="Github Username", metavar="USERNAME", default=USERNAME)
+                      help="Github Username", metavar="USERNAME",
+                      default=USERNAME)
     parser.add_option("-t", "--token", dest="token",
-                      help="Github API Token", metavar="TOKEN", default=API_TOKEN)
+                      help="Github API Token", metavar="TOKEN",
+                      default=API_TOKEN)
     (options, args) = parser.parse_args()
 
     pullbot = PullBotFactory(options.channels,
                              nickname=options.nickname,
                              username=options.username,
-                             token=options.token,
-                             )
+                             token=options.token, )
 
-    reactor.connectTCP(options.server,
-                       options.port,
-                       pullbot)
+    reactor.connectTCP(options.server, options.port, pullbot)
+
     reactor.run()
