@@ -139,7 +139,11 @@ class PullBot(irc.IRCClient):
 
     def query(self):
         for notifier in self.factory.notifiers:
-            pull_requests = notifier.query()
+            try:
+                pull_requests = notifier.query()
+            except Exception as inst:
+                print inst
+                continue
             for pr in pull_requests:
                 message = ("\x035pull request #%(number)s:"
                            "\x032 %(html_url)s -\x033 %(title)s") % pr
