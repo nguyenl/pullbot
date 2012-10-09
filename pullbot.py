@@ -37,9 +37,8 @@ NICKNAME = 'PullBot'
 HOST =  'irc.fisa'
 PORT = 6667
 RECONNECT_DELAY = 60
-CHANNELS = ("#cfps",)
+CHANNELS = ("#test",)
 QUERY_FREQUENCY = 300  # Seconds between github queries.
-USERNAME = "nguyenl"
 API_TOKEN = "" # The github API token to authenticate with.
 
 
@@ -53,7 +52,7 @@ class PullRequestNotifier:
     '''
     Checks Github for new Pull Requests.
     '''
-    gh_url = "https://www.github.com/api/v2/json/pulls/"
+    gh_url = "https://api.github.com/repos/%(owner)s/%(repo)s/pulls?access_token=%(token)s"
     state = None
     state_file = "pullbot_state.json"
 
@@ -80,39 +79,42 @@ class PullRequestNotifier:
         f.write(state_json + "\n")
         f.close()
 
-    def __init__(self, name, repo, username, token):
+    def __init__(self, owner, repo, token):
         '''
-        Initialize with the given name, repository, username and password.
+        Initialize with the owner name, repository, and authentication token.
         '''
-        self.name = name
+        self.owner = owner
         self.repo = repo
-        self.username = username
         self.token = token
-        self.url = urljoin(self.gh_url, name)
-        self.url = urljoin(self.url + "/", repo)
-        self.url = urljoin(self.url + "/", "open")
-        
+        url_dict = {
+            'owner': owner,
+            'repo': repo,
+            'token': token,
+            }
+
+        self.url = self.gh_url % url_dict
+
     def query(self):
         '''
         Query github for open pull requests.
         Returns the json provided by the API.
         '''
-        r = requests.get(self.url, auth=(self.username + "/token", self.token))
+        r = requests.get(self.url)
         pull_requests = simplejson.loads(r.text)
         if 'error' in pull_requests and pull_requests['error']:
             print r.text
-        project_name = "%s/%s" % (self.name, self.repo)
+        project_name = "%s/%s" % (self.owner, self.repo)
 
         # Check if we've already notified on this pull request.
         project_state = PullRequestNotifier.state.setdefault(
-            project_name, {"oldest_request": 0})
-        oldest_request = project_state['oldest_request']
+            project_name, {"newest_request": 0})
+        newest_request = project_state['newest_request']
         notifiable_requests = []
-        for pr in pull_requests['pulls']:
+        for pr in pull_requests:
             req_number = int(pr['number'])
-            if  req_number > oldest_request:
+            if  req_number > newest_request:
                 notifiable_requests.append(pr)
-                project_state['oldest_request'] = req_number
+                project_state['newest_request'] = req_number
                 PullRequestNotifier.save_state()
         return notifiable_requests
 
@@ -154,8 +156,7 @@ class PullBot(irc.IRCClient):
 class PullBotFactory(protocol.ReconnectingClientFactory):
     protocol = PullBot
 
-    def __init__(self, channels, username, token, nickname='PullBot'):
-        self.username = username
+    def __init__(self, channels, token, nickname='PullBot'):
         self.token = token
         self.channels = channels
         self.nickname = nickname
@@ -165,7 +166,6 @@ class PullBotFactory(protocol.ReconnectingClientFactory):
         for repo in REPOS:
             self.notifiers.append(PullRequestNotifier(repo[0],
                                                       repo[1],
-                                                      self.username,
                                                       self.token))
 
     def clientConnectionLost(self, connector, reason):
@@ -189,9 +189,6 @@ if __name__ == "__main__":
     parser.add_option("-c", "--channels", dest="channels",
                       help="Channels (comma-separated list)", metavar="CHAN",
                       default=CHANNELS)
-    parser.add_option("-u", "--username", dest="username",
-                      help="Github Username", metavar="USERNAME",
-                      default=USERNAME)
     parser.add_option("-t", "--token", dest="token",
                       help="Github API Token", metavar="TOKEN",
                       default=API_TOKEN)
@@ -199,7 +196,6 @@ if __name__ == "__main__":
 
     pullbot = PullBotFactory(options.channels,
                              nickname=options.nickname,
-                             username=options.username,
                              token=options.token, )
 
     reactor.connectTCP(options.server, options.port, pullbot)
