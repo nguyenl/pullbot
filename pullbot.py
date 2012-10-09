@@ -30,6 +30,7 @@ from urlparse import urljoin
 from optparse import OptionParser
 import requests
 import simplejson
+import logging
 
 
 # Default Configuration
@@ -48,6 +49,15 @@ REPOS = (
     )
 
 
+# Setup logging
+logger = logging.getLogger('pullbot')
+logger.setLevel(logging.INFO)
+ch = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
+
+
 class PullRequestNotifier:
     '''
     Checks Github for new Pull Requests.
@@ -62,7 +72,7 @@ class PullRequestNotifier:
         state = simplejson.load(f)
         f.close()
     except:
-        print "Unable to load state file:", sys.exc_info()[0]
+        logger.warning("Unable to load state file:", sys.exc_info()[0])
         # If loading the state fails.  Assume no previous state
         # and start fresh.
         state = {}
@@ -99,10 +109,11 @@ class PullRequestNotifier:
         Query github for open pull requests.
         Returns the json provided by the API.
         '''
+        logger.info("Querying Github")
         r = requests.get(self.url)
         pull_requests = simplejson.loads(r.text)
         if 'error' in pull_requests and pull_requests['error']:
-            print r.text
+             logger.error(r.text)
         project_name = "%s/%s" % (self.owner, self.repo)
 
         # Check if we've already notified on this pull request.
@@ -125,30 +136,31 @@ class PullBot(irc.IRCClient):
     nickname = property(_get_nickname)
 
     def connectionLost(self, reason):
-        print "Connection Lost"
+        logger.error("Connection Lost")
         if self.lc:
             self.lc.stop()
 
     def signedOn(self):
         for channel in self.factory.channels:
             self.join(channel)
-        print "Signed on as %s." % (self.factory.nickname,)
+        logger.info("Signed on as %s." % (self.factory.nickname,))
         self.lc = task.LoopingCall(self.query)
         self.lc.start(QUERY_FREQUENCY)
 
     def joined(self, channel):
-        print "Joined %s." % (channel,)
+        logger.info("Joined %s." % (channel,))
 
     def query(self):
         for notifier in self.factory.notifiers:
             try:
                 pull_requests = notifier.query()
             except Exception as inst:
-                print inst
+                logger.error(inst)
                 continue
             for pr in pull_requests:
                 message = ("\x035pull request #%(number)s:"
                            "\x032 %(html_url)s -\x033 %(title)s") % pr
+                logger.info(message)
                 for channel in self.factory.channels:
                     self.msg(channel, str(message))
 
@@ -169,11 +181,11 @@ class PullBotFactory(protocol.ReconnectingClientFactory):
                                                       self.token))
 
     def clientConnectionLost(self, connector, reason):
-        print "Lost connection (%s), reconnecting." % (reason,)
+        logger.error("Lost connection (%s), reconnecting." % (reason,))
         connector.connect()
 
     def clientConnectionFailed(self, connector, reason):
-        print "Could not connect: %s" % (reason,)
+        logger.error("Could not connect: %s" % (reason,))
 
 
 if __name__ == "__main__":
