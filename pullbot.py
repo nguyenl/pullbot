@@ -31,6 +31,7 @@ from optparse import OptionParser
 import requests
 import simplejson
 import logging
+from datetime import datetime
 
 
 # Default Configuration
@@ -58,11 +59,12 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 
-class PullRequestNotifier:
+class PullRequestNotifier(object):
     '''
     Checks Github for new Pull Requests.
     '''
-    gh_url = "https://api.github.com/repos/%(owner)s/%(repo)s/pulls?access_token=%(token)s"
+    PULL_REQUESTS_URL = "https://api.github.com/repos/%(owner)s/%(repo)s/pulls?access_token=%(token)s"
+    PULL_REQUESTS_COMMENTS_URL = "https://api.github.com/repos/%(owner)s/%(repo)s/pulls/%(number)s/comments?access_token=%(token)s"
     state = None
     state_file = "pullbot_state.json"
 
@@ -77,6 +79,14 @@ class PullRequestNotifier:
         # and start fresh.
         state = {}
 
+    def __init__(self, owner, repo, token):
+        '''
+        Initialize with the owner name, repository, and authentication token.
+        '''
+        self.owner = owner
+        self.repo = repo
+        self.token = token
+
     @staticmethod    
     def save_state():
         '''
@@ -89,20 +99,38 @@ class PullRequestNotifier:
         f.write(state_json + "\n")
         f.close()
 
-    def __init__(self, owner, repo, token):
-        '''
-        Initialize with the owner name, repository, and authentication token.
-        '''
-        self.owner = owner
-        self.repo = repo
-        self.token = token
+    @property
+    def pull_requests_url(self):
         url_dict = {
-            'owner': owner,
-            'repo': repo,
-            'token': token,
+            'owner': self.owner,
+            'repo': self.repo,
+            'token': self.token,
             }
+        url = self.PULL_REQUESTS_URL % url_dict
+        return url
 
-        self.url = self.gh_url % url_dict
+    def get_pull_requests_comments_url(self, number):
+        '''
+        Return the API Url to retrieve the comments for the given pull request number.
+        '''
+        url_dict = {
+            'owner': self.owner,
+            'repo': self.repo,
+            'token': self.token,
+            'number': number,
+            }
+        url = self.PULL_REQUESTS_COMMENTS_URL % url_dict
+        return url
+
+    def get_comments(self, number):
+        '''
+        Query the Github API for the given Pull Request number for comments.
+        '''
+        comment_url = self.get_pull_requests_comments_url(number)
+        r = requests.get(comment_url)
+        logger.debug(r.text)
+        comments = simplejson.loads(r.text)
+        return comments
 
     def query(self):
         '''
@@ -110,7 +138,8 @@ class PullRequestNotifier:
         Returns the json provided by the API.
         '''
         logger.info("Querying Github")
-        r = requests.get(self.url)
+        r = requests.get(self.pull_requests_url)
+        logger.debug(r.text)
         pull_requests = simplejson.loads(r.text)
         if 'error' in pull_requests and pull_requests['error']:
              logger.error(r.text)
@@ -118,16 +147,32 @@ class PullRequestNotifier:
 
         # Check if we've already notified on this pull request.
         project_state = PullRequestNotifier.state.setdefault(
-            project_name, {"newest_request": 0})
+            project_name,
+            {"newest_request": 0,
+             "newest_comment_id": 0,
+             },
+        )
         newest_request = project_state['newest_request']
+        newest_comment_id = project_state['newest_comment_id']
         notifiable_requests = []
+        notifiable_comments = []
         for pr in pull_requests:
             req_number = int(pr['number'])
-            if  req_number > newest_request:
+            if req_number > newest_request:
                 notifiable_requests.append(pr)
                 project_state['newest_request'] = req_number
                 PullRequestNotifier.save_state()
-        return notifiable_requests
+
+            # Check for new pull request comments
+            comments = self.get_comments(req_number)
+            for comment in comments:
+                if comment['id'] > newest_comment_id:
+                    comment['number'] = req_number
+                    notifiable_comments.append(comment)
+                    project_state['newest_comment_id'] = newest_comment_id
+                    PullRequestNotifier.save_state()
+
+        return notifiable_requests, notifiable_comments
 
 
 class PullBot(irc.IRCClient):
@@ -153,13 +198,23 @@ class PullBot(irc.IRCClient):
     def query(self):
         for notifier in self.factory.notifiers:
             try:
-                pull_requests = notifier.query()
+                pull_requests, comments = notifier.query()
             except Exception as inst:
                 logger.error(inst)
                 continue
+
             for pr in pull_requests:
                 message = ("\x035pull request #%(number)s:"
                            "\x032 %(html_url)s -\x033 %(title)s") % pr
+                logger.info(message)
+                for channel in self.factory.channels:
+                    self.msg(channel, str(message))
+
+            for comment in comments:
+                url = comment['_links']['html']['href']
+                comment['html_url'] = url
+                message = ("\x035PR Comment #%(number)s:"
+                           "\x032 %(html_url)s") % comment
                 logger.info(message)
                 for channel in self.factory.channels:
                     self.msg(channel, str(message))
