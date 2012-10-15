@@ -165,12 +165,18 @@ class PullRequestNotifier(object):
 
             # Check for new pull request comments
             comments = self.get_comments(req_number)
+            latest_comment_in_query = 0
             for comment in comments:
                 if comment['id'] > newest_comment_id:
+                    if comment['id'] > latest_comment_in_query:
+                        latest_comment_in_query = comment['id']
                     comment['number'] = req_number
                     notifiable_comments.append(comment)
-                    project_state['newest_comment_id'] = newest_comment_id
+                    project_state['newest_comment_id'] = comment['id']
                     PullRequestNotifier.save_state()
+            if latest_comment_in_query > 0:
+                project_state['newest_comment_id'] = latest_comment_in_query
+                PullRequestNotifier.save_state()
 
         return notifiable_requests, notifiable_comments
 
